@@ -43,7 +43,7 @@ bool same_config(const ops::SamplingConfig& a, const ops::SamplingConfig& b) {
     return a.temperature == b.temperature && a.top_k == b.top_k && a.top_p == b.top_p &&
            a.min_p == b.min_p && a.presence_penalty == b.presence_penalty &&
            a.frequency_penalty == b.frequency_penalty && a.seed == b.seed &&
-           a.token_counts == b.token_counts;
+           a.token_counts == b.token_counts && a.forced_token == b.forced_token;
 }
 
 std::vector<std::uint16_t> bf16_bits(const std::vector<float>& values) {
@@ -579,6 +579,20 @@ int workspace_route_boundary_contract() {
     return failures;
 }
 
+int forced_token_contract() {
+    constexpr int token_domain = 257;
+    constexpr int batch        = 8;
+    std::vector<float> logits(static_cast<std::size_t>(token_domain) * batch, 0.0f);
+    ops::SamplingConfig config;
+    config.temperature = 1.0f;
+    config.forced_token = 173;
+    const RunResult result = run_homogeneous_batch(logits, token_domain, token_domain, batch,
+                                                   config, 0, ops::kSamplePurposeDecode);
+    int failures = result.integrity_failures;
+    failures += verify_exact("sample forced token", result.tokens, std::vector<int>(batch, 173));
+    return failures;
+}
+
 } // namespace
 
 int main() {
@@ -608,6 +622,7 @@ int main() {
     failures += real_shape_distribution_contract();
     failures += rng_key_contract();
     failures += workspace_route_boundary_contract();
+    failures += forced_token_contract();
 
     std::cout << (failures == 0 ? "OK" : "FAIL") << " sample public contract\n";
     return failures == 0 ? 0 : 1;

@@ -92,6 +92,7 @@ FrontendResources resources(const std::string& chat_template = thinking_toggle_t
     const nlohmann::json tokens = nlohmann::json::array(
         {added(1, "helloST"), added(2, "OPtail"), added(3, "thought</thi"),
          added(4, "nk>\n\nanswer"), added(6, "<eos>", true), added(7, "<0.0 seconds>"),
+         added(13, R"(<tool_call>{"name":"lookup","arguments":{}}</tool_call>)"),
          added(30, "user\n"), added(31, "assistant\n"), added(32, "\n"),
          added(248045, "<|im_start|>", true), added(248046, "<|im_end|>", true),
          added(248053, "<|vision_start|>", true), added(248054, "<|vision_end|>", true),
@@ -755,6 +756,99 @@ int test_reasoning_split(const Frontend& frontend) {
     return failures;
 }
 
+int test_reasoning_cap(const Frontend& frontend) {
+    ninfer::ChatMessage message;
+    message.role = "user";
+    message.parts.push_back(
+        ninfer::MessagePart{.kind = ninfer::MessagePartKind::Text, .text = "x", .media = {}});
+    ninfer::PromptInput input;
+    input.messages.push_back(std::move(message));
+    input.options.enable_thinking = true;
+    auto prompt = frontend.prepare(std::move(input));
+    auto session = frontend.make_output_session(
+        prompt, {}, ninfer::OutputOptions{.preserve_special_tokens = true,
+                                          .max_reasoning_tokens = 1});
+
+    const auto thought = session.preview(std::array<ninfer::TokenId, 1>{3}, 4,
+                                         ninfer::FinishReason::OutputLimit);
+    int failures = check(thought.accepted_tokens == 1 && !thought.finished(),
+                         "reasoning cap setup unexpectedly terminated");
+    const auto thought_output = session.commit_preview();
+    failures += check(session.reasoning_tokens() == 1 && session.forced_token() == 248069,
+                      "reasoning cap did not request the Qwen close token");
+    failures += check(channel_text(thought_output, ninfer::OutputChannel::Reasoning) == "thought",
+                      "reasoning cap lost accepted reasoning text");
+
+    const auto close = session.preview(std::array<ninfer::TokenId, 1>{248069}, 3,
+                                       ninfer::FinishReason::OutputLimit);
+    failures += check(close.accepted_tokens == 1 && !close.finished(),
+                      "forced reasoning close terminated the completion");
+    const auto close_output = session.commit_preview();
+    failures += check(channel_text(close_output, ninfer::OutputChannel::Reasoning) == "</thi" &&
+                          !session.forced_token().has_value() && session.reasoning_tokens() == 1,
+                      "forced close was exposed, lost a pending prefix, or counted beyond the cap");
+
+    const auto content = session.preview(std::array<ninfer::TokenId, 1>{13}, 2,
+                                         ninfer::FinishReason::OutputLimit);
+    failures += check(content.accepted_tokens == 1 && !content.finished(),
+                      "content after forced reasoning close was rejected");
+    failures += check(
+        channel_text(session.commit_preview(), ninfer::OutputChannel::Content) ==
+            R"(<tool_call>{"name":"lookup","arguments":{}}</tool_call>)",
+        "tool call after forced reasoning close was not decoded as content");
+
+    ninfer::PromptInput no_thinking;
+    ninfer::ChatMessage direct;
+    direct.role = "user";
+    direct.parts.push_back(
+        ninfer::MessagePart{.kind = ninfer::MessagePartKind::Text, .text = "x", .media = {}});
+    no_thinking.messages.push_back(std::move(direct));
+    no_thinking.options.enable_thinking = false;
+    auto direct_prompt = frontend.prepare(std::move(no_thinking));
+    auto direct_session = frontend.make_output_session(
+        direct_prompt, {}, ninfer::OutputOptions{.max_reasoning_tokens = 1});
+    failures += check(!direct_session.forced_token().has_value() &&
+                          !direct_session.reasoning_round_limit().has_value(),
+                      "reasoning cap affected a non-thinking request");
+
+    ninfer::PromptInput naturally_closed;
+    ninfer::ChatMessage natural_message;
+    natural_message.role = "user";
+    natural_message.parts.push_back(
+        ninfer::MessagePart{.kind = ninfer::MessagePartKind::Text, .text = "x", .media = {}});
+    naturally_closed.messages.push_back(std::move(natural_message));
+    naturally_closed.options.enable_thinking = true;
+    auto natural_prompt = frontend.prepare(std::move(naturally_closed));
+    auto natural_session = frontend.make_output_session(
+        natural_prompt, {}, ninfer::OutputOptions{.max_reasoning_tokens = 3});
+    const auto natural = natural_session.preview(std::array<ninfer::TokenId, 2>{3, 4}, 3,
+                                                 ninfer::FinishReason::OutputLimit);
+    failures += check(natural.accepted_tokens == 2 && !natural.finished(),
+                      "normal thinking close before the cap terminated generation");
+    (void)natural_session.commit_preview();
+    failures += check(!natural_session.forced_token().has_value() &&
+                          natural_session.reasoning_tokens() == 2,
+                      "normal thinking close incorrectly activated the cap");
+
+    ninfer::PromptInput exhausted;
+    ninfer::ChatMessage exhausted_message;
+    exhausted_message.role = "user";
+    exhausted_message.parts.push_back(
+        ninfer::MessagePart{.kind = ninfer::MessagePartKind::Text, .text = "x", .media = {}});
+    exhausted.messages.push_back(std::move(exhausted_message));
+    exhausted.options.enable_thinking = true;
+    auto exhausted_prompt = frontend.prepare(std::move(exhausted));
+    auto exhausted_session = frontend.make_output_session(
+        exhausted_prompt, {}, ninfer::OutputOptions{.max_reasoning_tokens = 1});
+    const auto exhausted_decision = exhausted_session.preview(
+        std::array<ninfer::TokenId, 1>{3}, 1, ninfer::FinishReason::OutputLimit);
+    failures += check(exhausted_decision.finish_reason == ninfer::FinishReason::OutputLimit &&
+                          exhausted_decision.accepted_tokens == 1,
+                      "total output limit did not remain authoritative at the reasoning cap");
+    (void)exhausted_session.commit_preview();
+    return failures;
+}
+
 int test_utf8_and_hidden_eos(const Frontend& frontend) {
     auto prompt             = frontend.prepare_tokens({0});
     auto session            = frontend.make_output_session(prompt, {});
@@ -837,6 +931,7 @@ int main() {
     failures += test_same_token_stop_priority(frontend);
     failures += test_terminal_flush(frontend);
     failures += test_reasoning_split(frontend);
+    failures += test_reasoning_cap(frontend);
     failures += test_utf8_and_hidden_eos(frontend);
     failures += test_disabled_vision();
     return failures == 0 ? 0 : 1;

@@ -185,7 +185,7 @@ int execute_accept_case(const std::string& label, const std::vector<std::int32_t
                              config_before);
 
     auto expected_counts = initial_token_counts;
-    if (config.temperature > 0.0f) {
+    if (config.temperature > 0.0f || config.forced_token >= 0) {
         for (int i = 0; i < expected.num_sampled; ++i) {
             ++expected_counts[static_cast<std::size_t>(
                 expected.sampled[static_cast<std::size_t>(i)])];
@@ -272,6 +272,22 @@ int deterministic_sampling_case() {
     return execute_accept_case("speculative sampling deterministic support", targets, logits_bits,
                                physical_rows, drafts, initial_length, token_domain, config,
                                token_counts, expected);
+}
+
+int forced_token_case() {
+    constexpr int token_domain = 257;
+    constexpr int k = 3;
+    const std::vector<std::int32_t> drafts{4, 5, 6};
+    const std::vector<std::int32_t> targets{4, 5, 6, 7};
+    std::vector<std::uint16_t> logits(static_cast<std::size_t>(token_domain) * (k + 1), 0);
+    std::vector<std::int32_t> counts(token_domain, 0);
+    ops::SamplingConfig config{};
+    config.temperature = 1.0f;
+    config.forced_token = 173;
+    const AcceptExpected expected{
+        .sampled = {173, 0, 0, 0}, .num_sampled = 1, .accepted = 0, .length = 101, .token = 173};
+    return execute_accept_case("speculative forced token", targets, logits, token_domain, drafts,
+                               100, token_domain, config, counts, expected);
 }
 
 int batched_sampling_workspace_stride_case() {
@@ -440,6 +456,7 @@ int main() {
     failures += greedy_accept_case(5, 5);
     failures += greedy_accept_case(15, 7, 257);
     failures += deterministic_sampling_case();
+    failures += forced_token_case();
     failures += batched_sampling_workspace_stride_case();
     failures += select_hidden_case(5120, 6, 0);
     failures += select_hidden_case(5120, 6, 5);

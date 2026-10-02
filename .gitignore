@@ -54,3 +54,9 @@ dist/*
 
 # Claude Code personal/local settings (may contain API tokens)
 .claude/settings.local.json
+
+# Local serving runtime and credentials
+logs/
+*.ninfer
+*.token
+.env

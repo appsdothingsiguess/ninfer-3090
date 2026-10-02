@@ -1748,6 +1748,8 @@ ProgramImplCore::decode_ordinary_batch(std::span<const std::uint32_t> lanes,
             ordinary_host_ingress->text_kv_table_rows[row] = sequence.kv->text.bound_row();
             ordinary_host_ingress->lanes[row]    = static_cast<std::int32_t>(sequence.lane);
             ordinary_host_ingress->sampling[row] = request.sampling_host;
+            ordinary_host_ingress->sampling[row].forced_token =
+                budgets[row].forced_token.value_or(-1);
             materialize_sequence_kv(sequence, frontier + 1, 0);
         }
 
@@ -1879,6 +1881,8 @@ ProgramImplCore::decode_mtp_batch(std::span<const std::uint32_t> lanes,
             mtp_host_ingress->lanes[row]              = static_cast<std::int32_t>(sequence.lane);
             mtp_host_ingress->rope_deltas[row]        = sequence.rope_delta;
             mtp_host_ingress->sampling[row]           = request.sampling_host;
+            mtp_host_ingress->sampling[row].forced_token =
+                budgets[row].forced_token.value_or(-1);
             materialize_sequence_kv(sequence, frontier + extent + 1,
                                     std::min(capacity, frontier + extent + draft_window));
         }
@@ -2041,6 +2045,8 @@ ProgramImplCore::decode_dflash_batch(std::span<const std::uint32_t> lanes,
             dflash_host_ingress->dflash_kv_table_rows[row] = sequence.kv->backend->bound_row();
             dflash_host_ingress->lanes[row]    = static_cast<std::int32_t>(sequence.lane);
             dflash_host_ingress->sampling[row] = request.sampling_host;
+            dflash_host_ingress->sampling[row].forced_token =
+                budgets[row].forced_token.value_or(-1);
             materialize_sequence_kv(sequence, frontier + extent + 1U, frontier);
         }
 

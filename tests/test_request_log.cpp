@@ -178,6 +178,7 @@ int main() {
     request.stream         = false;
     request.max_tokens     = 4096;
     request.max_tokens_set = true;
+    request.max_reasoning_tokens = 512;
     request.messages.resize(2);
 
     PreparedRequest prepared;
@@ -199,6 +200,8 @@ int main() {
         check(started.at("request").at("request_id") == 7, "request id missing from start record");
     failures += check(started.at("request").at("requested_output_tokens") == 4096,
                       "request output budget missing");
+    failures += check(started.at("request").at("requested_reasoning_tokens") == 512,
+                      "request reasoning budget missing");
     failures += check(started.at("request").at("enable_thinking") == false,
                       "resolved thinking mode missing");
     failures += check(started.at("request").at("preserve_thinking") == true &&
@@ -210,6 +213,7 @@ int main() {
     GenerationOutcome outcome;
     outcome.prompt_tokens                       = 401;
     outcome.completion_tokens                   = 1024;
+    outcome.reasoning_tokens                    = 400;
     outcome.finish_reason                       = ninfer::FinishReason::OutputLimit;
     outcome.metrics.prepare_seconds             = 0.1234567890123;
     outcome.metrics.ttft_seconds                = 0.3580246791357;
@@ -228,6 +232,8 @@ int main() {
     outcome.metrics.speculative_accepted_per_position = {290, 240, 190};
 
     const Json done = Json::parse(format_request_done_json("serve-test", 3000, context, outcome));
+    failures += check(done.at("result").at("reasoning_tokens") == 400,
+                      "actual reasoning-token count missing");
     failures +=
         check(done.at("result").at("finish_reason") == "output_limit", "finish reason missing");
     failures += check(done.at("result").at("prompt_tokens") == 401, "prompt tokens missing");

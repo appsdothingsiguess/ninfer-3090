@@ -494,6 +494,31 @@ int test_parse_stop_and_max_tokens() {
     return failures;
 }
 
+int test_max_reasoning_tokens() {
+    int failures = 0;
+    Json body = {{"model", "m"},
+                 {"messages", Json::array({Json{{"role", "user"}, {"content", "hi"}}})},
+                 {"max_completion_tokens", 42},
+                 {"max_reasoning_tokens", 12}};
+    const GenerationRequest request = parse_chat_completion_request(body, default_limits());
+    failures += check(request.max_reasoning_tokens == 12, "reasoning cap parsed");
+    failures += check(to_request_options(request, default_server()).output.max_reasoning_tokens ==
+                          12,
+                      "reasoning cap reaches Engine output options");
+
+    body.erase("max_reasoning_tokens");
+    failures += check(!parse_chat_completion_request(body, default_limits())
+                           .max_reasoning_tokens.has_value(),
+                      "omitted reasoning cap did not remain unlimited");
+    for (const Json invalid : {Json(0), Json(-1), Json(43), Json(1.5), Json("12")}) {
+        body["max_reasoning_tokens"] = invalid;
+        failures += check(
+            throws_api([&] { (void)parse_chat_completion_request(body, default_limits()); }),
+            "invalid reasoning cap accepted");
+    }
+    return failures;
+}
+
 int test_parse_sampling_carried() {
     int failures                = 0;
     const Json body             = {{"model", "m"},
@@ -524,7 +549,7 @@ int test_parse_sampling_carried() {
 
 int test_response_serialization() {
     int failures = 0;
-    const CompletionUsage usage{10, 3};
+    const CompletionUsage usage{10, 3, 2};
     const Json j = Json::parse(
         make_chat_completion_response("id-1", "m", 111, "hello world", "", "stop", usage));
     failures += check(j.at("object") == "chat.completion", "response object");
@@ -540,6 +565,8 @@ int test_response_serialization() {
         check(j.at("choices").at(0).at("finish_reason") == "stop", "response finish_reason");
     failures += check(j.at("usage").at("prompt_tokens") == 10, "usage prompt_tokens");
     failures += check(j.at("usage").at("completion_tokens") == 3, "usage completion_tokens");
+    failures += check(j.at("usage").at("completion_tokens_details").at("reasoning_tokens") == 2,
+                      "usage reasoning_tokens");
     failures += check(j.at("usage").at("total_tokens") == 13, "usage total_tokens");
 
     // Non-empty reasoning is attached as message.reasoning_content, content stays answer-only.
@@ -555,7 +582,7 @@ int test_response_serialization() {
 
 int test_tool_response_serialization() {
     int failures = 0;
-    const CompletionUsage usage{12, 6};
+    const CompletionUsage usage{12, 6, 4};
     const std::vector<ToolCall> calls = {
         ToolCall{"call_abc", "get_weather", R"({"city":"Paris"})"}};
     const Json j = Json::parse(
@@ -709,6 +736,7 @@ int main() {
     failures += test_parse_function_tools_and_choices();
     failures += test_parse_tool_history_messages();
     failures += test_parse_stop_and_max_tokens();
+    failures += test_max_reasoning_tokens();
     failures += test_parse_sampling_carried();
     failures += test_response_serialization();
     failures += test_tool_response_serialization();

@@ -94,6 +94,8 @@ public:
     [[nodiscard]] runtime::OutputDecision preview_terminal(FinishReason reason);
     [[nodiscard]] PublishedOutput commit_preview() noexcept;
     [[nodiscard]] std::uint32_t reasoning_tokens() const noexcept;
+    [[nodiscard]] std::optional<TokenId> forced_token() const noexcept;
+    [[nodiscard]] std::optional<std::uint32_t> reasoning_round_limit() const noexcept;
 
 private:
     class Impl;

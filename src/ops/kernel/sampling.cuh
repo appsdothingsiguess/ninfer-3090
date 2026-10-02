@@ -24,6 +24,14 @@ __launch_bounds__(kSamplerBlock) __global__
     __shared__ float red_val[kSamplerBlock];
     __shared__ int red_idx[kSamplerBlock];
 
+    if (cfg.forced_token >= 0) {
+        if (tid == 0) {
+            out[row] = cfg.forced_token;
+            if (cfg.token_counts != nullptr) { atomicAdd(&cfg.token_counts[cfg.forced_token], 1); }
+        }
+        return;
+    }
+
     // Greedy: exact argmax over raw logits. Bit-identical to argmax().
     if (!(cfg.temperature > 0.0f)) {
         float bv = -CUDART_INF_F;
@@ -96,6 +104,7 @@ __launch_bounds__(kSamplerBlock) __global__
     const int col            = static_cast<int>(blockIdx.y);
     const int partial        = static_cast<int>(blockIdx.x);
     const SamplingConfig cfg = cfg_ptr[col];
+    if (cfg.forced_token >= 0) { return; }
     if (partial == 0 && threadIdx.x == 0) { workspace.group_done[col] = 0; }
 
     __shared__ typename SamplingPartialSort::TempStorage sort_storage;
@@ -150,6 +159,13 @@ __launch_bounds__(kSamplerGroupBlock) __global__ void sampling_group_finalize_sa
     const int col            = static_cast<int>(blockIdx.y);
     const int tid            = threadIdx.x;
     const SamplingConfig cfg = cfg_ptr[col];
+    if (cfg.forced_token >= 0) {
+        if (group == 0 && tid == 0) {
+            out[col] = cfg.forced_token;
+            if (cfg.token_counts != nullptr) { atomicAdd(&cfg.token_counts[cfg.forced_token], 1); }
+        }
+        return;
+    }
     __shared__ typename SamplingGroupSort::TempStorage sort_storage;
     __shared__ float cand_val[kSamplerCandidateCap];
     __shared__ int cand_idx[kSamplerCandidateCap];

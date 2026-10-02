@@ -622,13 +622,23 @@ public:
     Impl(std::shared_ptr<const fi::Tokenizer> tokenizer_, StopPolicy policy_, OutputOptions output,
          bool starts_in_reasoning)
         : tokenizer(std::move(tokenizer_)), policy(std::move(policy_)),
-          preserve_special(output.raw || output.preserve_special_tokens) {
+          preserve_special(output.raw || output.preserve_special_tokens),
+          max_reasoning_tokens(output.max_reasoning_tokens) {
         state.in_reasoning = starts_in_reasoning && !output.raw;
+        if (max_reasoning_tokens) {
+            const std::vector<int> close = tokenizer->encode(kThinkClose);
+            if (close.size() != 1) {
+                throw std::invalid_argument("Qwen thinking close marker must encode as one token");
+            }
+            think_close_token = close.front();
+        }
     }
 
     std::shared_ptr<const fi::Tokenizer> tokenizer;
     StopPolicy policy;
     bool preserve_special = false;
+    std::optional<std::uint32_t> max_reasoning_tokens;
+    std::optional<TokenId> think_close_token;
     DecoderState state;
     DecoderState preview_state;
     PublishedOutput preview_output;
@@ -727,7 +737,16 @@ runtime::OutputDecision OutputSession::preview(std::span<const TokenId> tokens,
                                     std::to_string(token));
         }
 
-        if (impl_->preview_state.in_reasoning) { ++impl_->preview_state.reasoning_tokens; }
+        const bool forced_close = impl_->max_reasoning_tokens && impl_->think_close_token &&
+                                  impl_->preview_state.in_reasoning &&
+                                  impl_->preview_state.reasoning_tokens >=
+                                      *impl_->max_reasoning_tokens;
+        if (forced_close && token != *impl_->think_close_token) {
+            throw std::logic_error("reasoning cap did not force the thinking close token");
+        }
+        if (impl_->preview_state.in_reasoning && !forced_close) {
+            ++impl_->preview_state.reasoning_tokens;
+        }
 
         const bool stop_token =
             std::find(impl_->policy.token_ids.begin(), impl_->policy.token_ids.end(), token) !=
@@ -796,6 +815,24 @@ PublishedOutput OutputSession::commit_preview() noexcept {
 
 std::uint32_t OutputSession::reasoning_tokens() const noexcept {
     return impl_ != nullptr ? impl_->state.reasoning_tokens : 0;
+}
+
+std::optional<TokenId> OutputSession::forced_token() const noexcept {
+    if (impl_ == nullptr || impl_->state.terminal || !impl_->max_reasoning_tokens ||
+        !impl_->think_close_token || !impl_->state.in_reasoning ||
+        impl_->state.reasoning_tokens < *impl_->max_reasoning_tokens) {
+        return std::nullopt;
+    }
+    return impl_->think_close_token;
+}
+
+std::optional<std::uint32_t> OutputSession::reasoning_round_limit() const noexcept {
+    if (impl_ == nullptr || impl_->state.terminal || !impl_->max_reasoning_tokens ||
+        !impl_->state.in_reasoning) {
+        return std::nullopt;
+    }
+    if (impl_->state.reasoning_tokens >= *impl_->max_reasoning_tokens) { return 1U; }
+    return *impl_->max_reasoning_tokens - impl_->state.reasoning_tokens;
 }
 
 Frontend::Frontend(std::shared_ptr<const Impl> impl) noexcept : impl_(std::move(impl)) {}

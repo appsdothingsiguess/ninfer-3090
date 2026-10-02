@@ -159,6 +159,7 @@ struct ExecutionOptions {
 struct OutputOptions {
     bool raw                     = false;
     bool preserve_special_tokens = false;
+    std::optional<std::uint32_t> max_reasoning_tokens;
 };
 
 struct RequestOptions {

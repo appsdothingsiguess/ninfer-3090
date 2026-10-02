@@ -74,6 +74,7 @@ The endpoint supports:
 - `system`, `developer`, `user`, `assistant`, and `tool` history;
 - string content and ordered text, `image_url`, and `video_url` parts;
 - `max_completion_tokens` and the legacy `max_tokens` spelling;
+- optional `max_reasoning_tokens`, a positive hard cap no greater than the completion limit;
 - `temperature`, `top_p`, `top_k`, presence/frequency penalties, and a nonnegative `seed`;
 - one stop string or an array of stop strings;
 - non-streaming responses and server-sent event streams;
@@ -86,6 +87,14 @@ The endpoint supports:
 The request `model` must equal the public model ID: the artifact `identity.model_id` by default, or
 the explicit `--model-id` override. Reasoning is returned separately as `reasoning_content`; answer
 text remains in `content`.
+
+`max_reasoning_tokens` is an opt-in Chat Completions extension. When thinking is active and the
+accepted reasoning-token count reaches the cap, NInfer forces Qwen's normal `</think>` token at the
+next sampling boundary and continues generation in the content/tool-call channel. The synthesized
+close token consumes the shared `max_completion_tokens` budget but is not counted as a reasoning
+token. Omitting the field preserves the existing uncapped behavior. The field is inert when
+thinking is disabled. Both streaming and non-streaming usage include
+`completion_tokens_details.reasoning_tokens`.
 
 At startup, NInfer resolves prompt capabilities from the exact `frontend/chat_template.jinja`
 resource embedded in the loaded artifact. It does not infer them from the request's `model` field,
@@ -471,15 +480,15 @@ is also rejected if it resolves to the model artifact.
   --request-log-jsonl profiles/bench/run/server.requests.jsonl
 ```
 
-Every line is one `ninfer_serve_request_log` schema-v8 JSON object. All events carry
+Every line is one `ninfer_serve_request_log` schema-v9 JSON object. All events carry
 `timestamp_unix_ms` and a process-unique `server_instance_id`; request IDs are monotonic only within
 that server instance.
 
 | Event | Contents |
 |---|---|
 | `server_start` | target/weights identity and artifact, resolved Engine, registered thinking/non-thinking sampler defaults plus process overrides, thinking-history defaults, weights/sequence/workspace/request-transient arenas, KV sizing ledger, CUDA Graph observed/allowance bytes, CUDA/GPU environment, and redacted argv |
-| `request_start` | protocol, resolved sampler and seed, thinking modes, Responses semantic-change flag, output budget, stream/message/tool shape |
-| `request_done` | finish reason, prompt/completion/cache/computed-prefill tokens, prefix reuse path, unrounded phase seconds, and complete speculative-decoding counters |
+| `request_start` | protocol, resolved sampler and seed, thinking modes, Responses semantic-change flag, output and optional reasoning budgets, stream/message/tool shape |
+| `request_done` | finish reason, prompt/completion/reasoning/cache/computed-prefill tokens, prefix reuse path, unrounded phase seconds, and complete speculative-decoding counters |
 | `request_error` | the resolved request configuration and generation error message |
 | `throughput` | interval token deltas and rates, scheduler occupancy, and decode-round batch statistics |
 

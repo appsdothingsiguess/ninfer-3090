@@ -182,6 +182,10 @@ Json request_json(const RequestLogContext& context) {
                 {"requested_output_tokens", context.requested_output_tokens},
                 {"requested_output_tokens_source",
                  context.requested_output_tokens_client_set ? "client" : "server_default"},
+                {"requested_reasoning_tokens",
+                 context.requested_reasoning_tokens
+                     ? Json(*context.requested_reasoning_tokens)
+                     : Json(nullptr)},
                 {"tool_count", context.tool_count},
                 {"tool_choice", tool_choice_name(context.tool_choice)},
                 {"has_tool_history", context.has_tool_history},
@@ -270,6 +274,7 @@ RequestLogContext make_request_log_context(std::uint64_t id, std::string protoco
     context.message_count                      = request.messages.size();
     context.requested_output_tokens            = request.max_tokens;
     context.requested_output_tokens_client_set = request.max_tokens_set;
+    context.requested_reasoning_tokens          = request.max_reasoning_tokens;
     context.tool_count                         = request.tools.size();
     context.tool_choice                        = request.tool_choice;
     context.has_tool_history                   = request.has_tool_history();
@@ -286,6 +291,10 @@ std::string format_request_start(const RequestLogContext& context) {
         << (context.stream ? "stream" : "non-stream") << " msgs=" << context.message_count
         << " max_tokens=" << context.requested_output_tokens << ' '
         << (context.requested_output_tokens_client_set ? "(client)" : "(server default)")
+        << " max_reasoning_tokens="
+        << (context.requested_reasoning_tokens
+                ? std::to_string(*context.requested_reasoning_tokens)
+                : std::string("unlimited"))
         << " tools=" << context.tool_count
         << " tool_choice=" << tool_choice_name(context.tool_choice)
         << " tool_history=" << (context.has_tool_history ? "yes" : "no")
@@ -454,6 +463,7 @@ std::string format_request_done_json(const std::string& server_instance_id, std:
         Json{{"finish_reason", finish_reason_name(outcome.finish_reason)},
              {"prompt_tokens", outcome.prompt_tokens},
              {"completion_tokens", outcome.completion_tokens},
+             {"reasoning_tokens", outcome.reasoning_tokens},
              {"computed_prefill_tokens",
               std::max(0, outcome.prompt_tokens -
                               static_cast<int>(outcome.metrics.prefix_cache_hit_tokens))},

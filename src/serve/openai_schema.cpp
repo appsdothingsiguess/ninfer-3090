@@ -563,6 +563,18 @@ GenerationRequest parse_chat_completion_request(const Json& body, const RequestL
         out.max_tokens     = limits.default_max_tokens;
         out.max_tokens_set = false;
     }
+    const std::optional<int> max_reasoning_tokens = get_int(body, "max_reasoning_tokens");
+    if (max_reasoning_tokens) {
+        if (*max_reasoning_tokens <= 0) {
+            bad_request("max_reasoning_tokens must be a positive integer",
+                        "max_reasoning_tokens");
+        }
+        if (*max_reasoning_tokens > out.max_tokens) {
+            bad_request("max_reasoning_tokens must not exceed max_completion_tokens",
+                        "max_reasoning_tokens");
+        }
+        out.max_reasoning_tokens = *max_reasoning_tokens;
+    }
     return out;
 }
 
@@ -582,6 +594,8 @@ std::string make_chat_completion_response(const std::string& id, const std::stri
              {"index", 0}, {"message", std::move(message)}, {"finish_reason", finish_reason}}})},
         {"usage", Json{{"prompt_tokens", usage.prompt_tokens},
                        {"completion_tokens", usage.completion_tokens},
+                       {"completion_tokens_details",
+                        Json{{"reasoning_tokens", usage.reasoning_tokens}}},
                        {"total_tokens", usage.prompt_tokens + usage.completion_tokens}}}};
     return payload.dump();
 }
@@ -605,6 +619,8 @@ std::string make_chat_completion_tool_response(const std::string& id, const std:
              {"index", 0}, {"message", std::move(message)}, {"finish_reason", "tool_calls"}}})},
         {"usage", Json{{"prompt_tokens", usage.prompt_tokens},
                        {"completion_tokens", usage.completion_tokens},
+                       {"completion_tokens_details",
+                        Json{{"reasoning_tokens", usage.reasoning_tokens}}},
                        {"total_tokens", usage.prompt_tokens + usage.completion_tokens}}}};
     return payload.dump();
 }
@@ -669,6 +685,8 @@ std::string make_chat_chunk_usage(const std::string& id, const std::string& mode
     payload["choices"] = Json::array();
     payload["usage"]   = Json{{"prompt_tokens", usage.prompt_tokens},
                               {"completion_tokens", usage.completion_tokens},
+                              {"completion_tokens_details",
+                               Json{{"reasoning_tokens", usage.reasoning_tokens}}},
                               {"total_tokens", usage.prompt_tokens + usage.completion_tokens}};
     return sse_event(payload);
 }

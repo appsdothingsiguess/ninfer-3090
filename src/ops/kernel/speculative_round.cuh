@@ -87,6 +87,19 @@ __launch_bounds__(kSamplerBlock) __global__ void speculative_accept_greedy_draft
     const __nv_bfloat16* row_logits =
         logits + static_cast<std::int64_t>(row) * cols * physical_rows;
 
+    if (cfg.forced_token >= 0) {
+        if (tid == 0) {
+            for (int i = 0; i <= k; ++i) { row_tokens[i] = 0; }
+            row_tokens[0]        = cfg.forced_token;
+            licensed_counts[row] = 1;
+            accepted[row]        = 0;
+            anchors[row]         = cfg.forced_token;
+            lengths[row] += 1;
+            if (cfg.token_counts != nullptr) { atomicAdd(&cfg.token_counts[cfg.forced_token], 1); }
+        }
+        return;
+    }
+
     if (!(cfg.temperature > 0.0f)) {
         if (tid == 0) {
             int a = 0;
@@ -209,6 +222,7 @@ __launch_bounds__(kSamplerBlock) __global__ void speculative_sampling_partial_to
     extent            = extent < 0 ? 0 : (extent > k ? k : extent);
     if (col > extent) { return; }
     const SamplingConfig cfg = configs[row];
+    if (cfg.forced_token >= 0) { return; }
     if (!(cfg.temperature > 0.0f) || token_domain <= kSamplerTileItems) { return; }
     workspace = speculative_workspace_row(workspace, workspace_row_stride, row);
     if (partial == 0 && threadIdx.x == 0) {
@@ -269,6 +283,19 @@ __launch_bounds__(kSamplerGroupBlock) __global__ void speculative_sampling_group
     const std::int32_t* row_drafts  = drafts + row * k;
     std::int32_t* row_tokens        = licensed_tokens + row * cols;
     if (token_domain <= kSamplerTileItems) { return; }
+
+    if (cfg.forced_token >= 0) {
+        if (col == 0 && group == 0 && tid == 0) {
+            for (int i = 0; i <= k; ++i) { row_tokens[i] = 0; }
+            row_tokens[0]        = cfg.forced_token;
+            licensed_counts[row] = 1;
+            accepted[row]        = 0;
+            anchors[row]         = cfg.forced_token;
+            lengths[row] += 1;
+            if (cfg.token_counts != nullptr) { atomicAdd(&cfg.token_counts[cfg.forced_token], 1); }
+        }
+        return;
+    }
 
     if (!(cfg.temperature > 0.0f)) {
         if (tid == 0 && col == 0 && group == 0) {

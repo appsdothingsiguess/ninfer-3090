@@ -249,6 +249,11 @@ OpenAI Chat Completions accepts a top-level `reasoning_effort` field:
 }
 ```
 
+Chat Completions also accepts an optional positive `max_reasoning_tokens` hard cap. It must not
+exceed `max_completion_tokens`; once reached, NInfer forces the model's normal close-of-thinking
+transition and continues with answer text or a tool call. Usage reports the actual count at
+`completion_tokens_details.reasoning_tokens`.
+
 OpenAI Responses uses `"reasoning": {"effort": "xhigh"}`. Anthropic Messages uses
 `"output_config": {"effort": "xhigh"}`. For the native CLI, pass
 `--reasoning-effort low|medium|xhigh`; use `--no-thinking` instead of an effort to disable

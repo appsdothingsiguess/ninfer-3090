@@ -49,6 +49,7 @@ struct RequestLimits {
 struct CompletionUsage {
     int prompt_tokens     = 0;
     int completion_tokens = 0;
+    int reasoning_tokens  = 0;
 };
 
 enum class ContentKind {
@@ -171,6 +172,7 @@ struct GenerationRequest {
     std::vector<std::string> stop_strings;
     int max_tokens      = 0; // 0 => use server default
     bool max_tokens_set = false;
+    std::optional<int> max_reasoning_tokens;
     bool stream         = false;
     bool include_usage  = false;
     std::optional<bool> enable_thinking; // non-standard extension; falls back to server default

@@ -589,6 +589,11 @@ private:
             }
             membership.lanes[membership.size]   = lane;
             membership.budgets[membership.size] = request->budget->round_budget();
+            membership.budgets[membership.size].forced_token = request->output.forced_token();
+            if (const auto cap = request->output.reasoning_round_limit()) {
+                membership.budgets[membership.size].generated_tokens_remaining =
+                    std::min(membership.budgets[membership.size].generated_tokens_remaining, *cap);
+            }
             ++membership.size;
         }
         return membership;
